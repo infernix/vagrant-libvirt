@@ -12,7 +12,7 @@ module VagrantPlugins
         end
 
         def _disk_name(name, disk)
-          "#{name}-#{disk[:device]}.#{disk[:type]}"	# disk name
+          "#{name}-#{disk[:device]}.#{disk[:type]}"  # disk name
         end
 
         def _disks_print(disks)
@@ -37,6 +37,7 @@ module VagrantPlugins
           @cpu_mode = config.cpu_mode
           @cpu_model = config.cpu_model
           @cpu_fallback = config.cpu_fallback
+          @numa_nodes = config.numa_nodes
           @loader = config.loader
           @machine_type = config.machine_type
           @machine_arch = config.machine_arch
@@ -79,11 +80,21 @@ module VagrantPlugins
           # Input
           @inputs = config.inputs
 
+          # Channels
+          @channels = config.channels
+
           # PCI device passthrough
           @pcis = config.pcis
 
           # USB device passthrough
           @usbs = config.usbs
+        
+          # Redirected devices
+          @redirdevs = config.redirdevs
+          @redirfilters = config.redirfilters
+
+          # RNG device passthrough
+          @rng =config.rng
 
           config = env[:machine].provider_config
           @domain_type = config.driver
@@ -188,7 +199,8 @@ module VagrantPlugins
 
           @disks.each do |disk|
             msg = " -- Disk(#{disk[:device]}):     #{disk[:absolute_path]}"
-            msg += ' (shared. Remove only manually)' if disk[:allow_existing]
+            msg += ' Shared' if disk[:shareable]
+            msg += ' (Remove only manually)' if disk[:allow_existing]
             msg += ' Not created - using existed.' if disk[:preexisting]
             env[:ui].info(msg)
           end
@@ -205,8 +217,17 @@ module VagrantPlugins
             env[:ui].info(" -- INPUT:             type=#{input[:type]}, bus=#{input[:bus]}")
           end
 
+          @channels.each do |channel|
+            env[:ui].info(" -- CHANNEL:             type=#{channel[:type]}, mode=#{channel[:source_mode]}")
+            env[:ui].info(" -- CHANNEL:             target_type=#{channel[:target_type]}, target_name=#{channel[:target_name]}")
+          end
+
           @pcis.each do |pci|
             env[:ui].info(" -- PCI passthrough:   #{pci[:bus]}:#{pci[:slot]}.#{pci[:function]}")
+          end
+
+          if !@rng[:model].nil?
+            env[:ui].info(" -- RNG device model:  #{@rng[:model]}")
           end
 
           @usbs.each do |usb|
@@ -217,6 +238,28 @@ module VagrantPlugins
             usb_dev.push("product=#{usb[:product]}") if usb[:product]
             env[:ui].info(" -- USB passthrough:   #{usb_dev.join(', ')}")
           end
+
+          if not @redirdevs.empty?
+            env[:ui].info(" -- Redirected Devices: ")
+            @redirdevs.each do |redirdev|
+              msg = "    -> bus=usb, type=#{redirdev[:type]}"
+              env[:ui].info(msg)
+            end
+          end
+
+
+          if not @redirfilters.empty?
+            env[:ui].info(" -- USB Device filter for Redirected Devices: ")
+            @redirfilters.each do |redirfilter|
+              msg = "    -> class=#{redirfilter[:class]}, "
+              msg += "vendor=#{redirfilter[:vendor]}, "
+              msg += "product=#{redirfilter[:product]}, "
+              msg += "version=#{redirfilter[:version]}, "
+              msg += "allow=#{redirfilter[:allow]}"
+              env[:ui].info(msg)
+            end
+          end
+
 
           env[:ui].info(" -- Command line : #{@cmd_line}")
 

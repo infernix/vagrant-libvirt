@@ -17,8 +17,8 @@ module VagrantPlugins
         def initialize(app, env)
           @logger = Log4r::Logger.new('vagrant_libvirt::action::create_network_interfaces')
           @management_network_name = env[:machine].provider_config.management_network_name
-	        config = env[:machine].provider_config
-	        @nic_model_type = config.nic_model_type
+          config = env[:machine].provider_config
+          @nic_model_type = config.nic_model_type
           @nic_adapter_count = config.nic_adapter_count
           @app = app
         end
@@ -69,7 +69,7 @@ module VagrantPlugins
             @network_name = iface_configuration[:network_name]
             @mac = iface_configuration.fetch(:mac, false)
             @model_type = iface_configuration.fetch(:model_type, @nic_model_type)
-	    @device_name = iface_configuration.fetch(:iface_name, false)
+            @device_name = iface_configuration.fetch(:iface_name, false)
             template_name = 'interface'
             # Configuration for public interfaces which use the macvtap driver
             if iface_configuration[:iface_type] == :public_network
@@ -77,9 +77,12 @@ module VagrantPlugins
               @mode = iface_configuration.fetch(:mode, 'bridge')
               @type = iface_configuration.fetch(:type, 'direct')
               @model_type = iface_configuration.fetch(:model_type, @nic_model_type)
+              @portgroup = iface_configuration.fetch(:portgroup, nil)
+              @network_name = iface_configuration.fetch(:network_name, @network_name)
               template_name = 'public_interface'
               @logger.info("Setting up public interface using device #{@device} in mode #{@mode}")
               @ovs = iface_configuration.fetch(:ovs, false)
+              @trust_guest_rx_filters = iface_configuration.fetch(:trust_guest_rx_filters, false)
             # configuration for udp or tcp tunnel interfaces (p2p conn btwn guest OSes)
             elsif iface_configuration.fetch(:tunnel_type, nil)
               @type = iface_configuration.fetch(:tunnel_type)
@@ -125,6 +128,8 @@ module VagrantPlugins
               if iface_configuration[:iface_type] == :public_network
                 if @type == 'direct'
                   @mac = xml.xpath("/domain/devices/interface[source[@dev='#{@device}']]/mac/@address")
+                elsif !@portgroup.nil?
+                  @mac = xml.xpath("/domain/devices/interface[source[@network='#{@network_name}']]/mac/@address")
                 else
                   @mac = xml.xpath("/domain/devices/interface[source[@bridge='#{@device}']]/mac/@address")
                 end
@@ -163,6 +168,7 @@ module VagrantPlugins
                   :type    => :static,
                   :ip      => options[:ip],
                   :netmask => options[:netmask],
+                  :gateway => options[:gateway],
                 }.merge(network)
               else
                 network[:type] = :dhcp

@@ -56,11 +56,13 @@ module VagrantPlugins
       # Domain specific settings used while creating new domain.
       attr_accessor :uuid
       attr_accessor :memory
+      attr_accessor :channel
       attr_accessor :cpus
       attr_accessor :cpu_mode
       attr_accessor :cpu_model
       attr_accessor :cpu_fallback
       attr_accessor :cpu_features
+      attr_accessor :numa_nodes
       attr_accessor :loader
       attr_accessor :boot_order
       attr_accessor :machine_type
@@ -103,11 +105,21 @@ module VagrantPlugins
       # Inputs
       attr_accessor :inputs
 
+      # Channels
+      attr_accessor :channels
+
       # PCI device passthrough
       attr_accessor :pcis
 
+      # Random number device passthrough
+      attr_accessor :rng
+
       # USB device passthrough
       attr_accessor :usbs
+
+      # Redirected devices
+      attr_accessor :redirdevs
+      attr_accessor :redirfilters
 
       # Suspend mode
       attr_accessor :suspend_mode
@@ -139,6 +151,7 @@ module VagrantPlugins
         @cpu_model         = UNSET_VALUE
         @cpu_fallback      = UNSET_VALUE
         @cpu_features      = UNSET_VALUE
+        @numa_nodes        = UNSET_VALUE
         @loader            = UNSET_VALUE
         @machine_type      = UNSET_VALUE
         @machine_arch      = UNSET_VALUE
@@ -169,19 +182,29 @@ module VagrantPlugins
         @nic_adapter_count = UNSET_VALUE
 
         # Boot order
-        @boot_order = []
+        @boot_order        = []
         # Storage
         @disks             = []
-        @cdroms			   = []
+        @cdroms            = []
 
         # Inputs
         @inputs            = UNSET_VALUE
 
+        # Channels
+        @channels          = UNSET_VALUE
+
         # PCI device passthrough
         @pcis              = UNSET_VALUE
 
+        # Random number device passthrough
+        @rng              = UNSET_VALUE
+
         # USB device passthrough
         @usbs              = UNSET_VALUE
+        
+        # Redirected devices
+        @redirdevs         = UNSET_VALUE
+        @redirfilters      = UNSET_VALUE
 
         # Suspend mode
         @suspend_mode      = UNSET_VALUE
@@ -191,15 +214,15 @@ module VagrantPlugins
       end
 
       def boot(device)
-        @boot_order << device	# append
+        @boot_order << device  # append
       end
 
       def _get_device(disks)
         # skip existing devices and also the first one (vda)
         exist = disks.collect {|x| x[:device]}+[1.vdev.to_s]
-        skip = 1		# we're 1 based, not 0 based...
+        skip = 1  # we're 1 based, not 0 based...
         while true do
-          dev = skip.vdev	# get lettered device
+          dev = skip.vdev  # get lettered device
           if !exist.include?(dev)
             return dev
           end
@@ -223,6 +246,33 @@ module VagrantPlugins
 
         # is it better to raise our own error, or let libvirt cause the exception?
         raise 'Only four cdroms may be attached at a time'
+      end
+
+      def _generate_numa
+        if @cpus % @numa_nodes != 0
+          raise 'NUMA nodes must be a factor of CPUs'
+        end
+
+        if @memory % @numa_nodes != 0
+          raise 'NUMA nodes must be a factor of memory'
+        end
+
+        numa = []
+
+        (1..@numa_nodes).each do |node|
+          numa_cpu_start = (@cpus / @numa_nodes) * (node - 1)
+          numa_cpu_end = (@cpus / @numa_nodes) * node - 1
+          numa_cpu = Array(numa_cpu_start..numa_cpu_end).join(',')
+          numa_mem = @memory / @numa_nodes
+
+          numa.push({
+            id: node,
+            cpu: numa_cpu,
+            mem: numa_mem
+          })
+        end
+
+        @numa_nodes = numa
       end
 
       def cpu_feature(options={})
@@ -253,6 +303,44 @@ module VagrantPlugins
           type: options[:type],
           bus:  options[:bus]
         })
+      end
+
+      def channel(options={})
+        if options[:type].nil?
+            raise "Channel type must be specified."
+        elsif options[:type] == 'unix' && options[:target_type] == 'guestfwd'
+            # Guest forwarding requires a target (ip address) and a port
+            if options[:target_address].nil? || options[:target_port].nil? ||
+               options[:source_path].nil?
+              raise 'guestfwd requires target_address, target_port and source_path'
+            end
+        end
+
+        if @channels == UNSET_VALUE
+          @channels = []
+        end
+
+        @channels.push({
+          type: options[:type],
+          source_mode: options[:source_mode],
+          source_path: options[:source_path],
+          target_address: options[:target_address],
+          target_name: options[:target_name],
+          target_port: options[:target_port],
+          target_type: options[:target_type]
+        })
+      end
+
+      def random(options={})
+        if !options[:model].nil? && options[:model] != "random"
+          raise 'The only supported rng backend is "random".'
+        end
+
+        if @rng == UNSET_VALUE
+          @rng = {}
+        end
+
+        @rng[:model] = options[:model]
       end
 
       def pci(options={})
@@ -286,6 +374,38 @@ module VagrantPlugins
           vendor:        options[:vendor],
           product:       options[:product],
           startupPolicy: options[:startupPolicy],
+        })
+      end
+
+      def redirdev(options={})
+        if options[:type].nil?
+          raise 'Type must be specified.'
+        end
+
+        if @redirdevs == UNSET_VALUE
+          @redirdevs = []
+        end
+
+        @redirdevs.push({
+          type: options[:type],
+        })
+      end
+
+      def redirfilter(options={})
+        if options[:allow].nil?
+          raise 'Option allow must be specified.'
+        end
+
+        if @redirfilters == UNSET_VALUE
+          @redirfilters = []
+        end
+
+        @redirfilters.push({
+          class: options[:class] || -1,
+          vendor: options[:class] || -1,
+          product: options[:class] || -1,
+          version: options[:class] || -1,
+          allow: options[:allow],
         })
       end
 
@@ -330,7 +450,7 @@ module VagrantPlugins
         options = {
           :device => _get_device(@disks),
           :type => 'qcow2',
-          :size => '10G',	# matches the fog default
+          :size => '10G',  # matches the fog default
           :path => nil,
           :bus => 'virtio'
         }.merge(options)
@@ -343,9 +463,10 @@ module VagrantPlugins
           :bus => options[:bus],
           :cache => options[:cache] || 'default',
           :allow_existing => options[:allow_existing],
+          :shareable => options[:shareable],
         }
 
-        @disks << disk	# append
+        @disks << disk  # append
       end
 
       # code to generate URI from a config moved out of the connect action
@@ -364,7 +485,7 @@ module VagrantPlugins
           raise "Require specify driver #{uri}"
         end
         if uri == 'kvm'
-          uri = 'qemu'	# use qemu uri for kvm domain type
+          uri = 'qemu'  # use qemu uri for kvm domain type
         end
 
         if @connect_via_ssh
@@ -421,9 +542,14 @@ module VagrantPlugins
         @memory = 512 if @memory == UNSET_VALUE
         @cpus = 1 if @cpus == UNSET_VALUE
         @cpu_mode = 'host-model' if @cpu_mode == UNSET_VALUE
-        @cpu_model = 'qemu64' if @cpu_model == UNSET_VALUE
+        @cpu_model = if (@cpu_model == UNSET_VALUE and @cpu_mode == 'custom')
+            'qemu64'
+          elsif (@cpu_mode != 'custom')
+            ''
+          end
         @cpu_fallback = 'allow' if @cpu_fallback == UNSET_VALUE
         @cpu_features = [] if @cpu_features == UNSET_VALUE
+        @numa_nodes = @numa_nodes == UNSET_VALUE ? nil : _generate_numa()
         @loader = nil if @loader == UNSET_VALUE
         @machine_type = nil if @machine_type == UNSET_VALUE
         @machine_arch = nil if @machine_arch == UNSET_VALUE
@@ -465,11 +591,21 @@ module VagrantPlugins
         # Inputs
         @inputs = [{:type => "mouse", :bus => "ps2"}] if @inputs == UNSET_VALUE
 
+        # Channels
+        @channels = [ ] if @channels == UNSET_VALUE
+
         # PCI device passthrough
         @pcis = [] if @pcis == UNSET_VALUE
 
+        # Random number generator passthrough
+        @rng = {} if @rng == UNSET_VALUE
+
         # USB device passthrough
         @usbs = [] if @usbs == UNSET_VALUE
+        
+        # Redirected devices
+        @redirdevs = [] if @redirdevs == UNSET_VALUE
+        @redirfilters = [] if @redirfilters == UNSET_VALUE
 
         # Suspend mode
         @suspend_mode = "pause" if @suspend_mode == UNSET_VALUE
@@ -484,6 +620,12 @@ module VagrantPlugins
         machine.provider_config.disks.each do |disk|
           if disk[:path] and disk[:path][0] == '/'
             errors << "absolute volume paths like '#{disk[:path]}' not yet supported"
+          end
+        end
+
+        machine.config.vm.networks.each do |_type, opts|
+          if opts[:mac] && opts[:mac].downcase! && !(opts[:mac] =~ /\A([0-9a-f]{2}:){5}([0-9a-f]{2})\z/)
+            errors << "Configured NIC MAC '#{opts[:mac]}' is not in 'xx:xx:xx:xx:xx:xx' format"
           end
         end
 

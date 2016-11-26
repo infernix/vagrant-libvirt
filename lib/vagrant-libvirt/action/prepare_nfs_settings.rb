@@ -39,7 +39,7 @@ module VagrantPlugins
         #
         # @param [Machine] machine
         # @return [String]
-	def read_host_ip(ip)
+        def read_host_ip(ip)
           UDPSocket.open do |s|
             if(ip.kind_of?(Array))
               s.connect(ip.last, 1)
@@ -59,7 +59,7 @@ module VagrantPlugins
           return ssh_host if ping(ssh_host)
 
           # check other ips
-          command = "ip addr show | grep -i 'inet ' | grep -v '127.0.0.1' | tr -s ' ' | cut -d' ' -f3 | cut -d'/' -f 1"
+          command = "ip=$(which ip); ${ip:-/sbin/ip} addr show | grep -i 'inet ' | grep -v '127.0.0.1' | tr -s ' ' | cut -d' ' -f3 | cut -d'/' -f 1"
           result  = ""
           machine.communicate.execute(command) do |type, data|
             result << data if type == :stdout
@@ -77,7 +77,7 @@ module VagrantPlugins
 
         # Check if we can open a connection to the host
         def ping(host, timeout = 3)
-          timeout(timeout) do
+          ::Timeout.timeout(timeout) do
             s = TCPSocket.new(host, 'echo')
             s.close
           end

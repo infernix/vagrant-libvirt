@@ -7,7 +7,7 @@ Gem::Specification.new do |gem|
   gem.license       = 'MIT'
   gem.description   = %q{libvirt provider for Vagrant.}
   gem.summary       = %q{libvirt provider for Vagrant.}
-  gem.homepage      = 'https://github.com/pradels/vagrant-libvirt'
+  gem.homepage      = 'https://github.com/vagrant-libvirt/vagrant-libvirt'
 
   gem.files         = `git ls-files`.split($\)
   gem.executables   = gem.files.grep(%r{^bin/}).map{ |f| File.basename(f) }
@@ -20,7 +20,7 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency "rspec-expectations", "~> 2.14.0"
   gem.add_development_dependency "rspec-mocks", "~> 2.14.0"
 
-  gem.add_runtime_dependency 'fog-libvirt', '0.0.3'
+  gem.add_runtime_dependency 'fog-libvirt', '>= 0.3.0'
   gem.add_runtime_dependency 'nokogiri', '~> 1.6.0'
 
   gem.add_development_dependency 'rake'
